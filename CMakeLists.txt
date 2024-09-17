@@ -5,11 +5,11 @@ project(webrtc NONE)
 find_package(Git REQUIRED)
 
 include(ExternalProject)
-
+set(CMAKE_INSTALL_PREFIX "${PROJECT_BINARY_DIR}/dist")
 option(ARCH "Target architecture" "")
-option(NOLOG "Disable debug log" ON)
-option(CUBBIT "Build cubbit version" ON)
-
+option(NOLOG "Disable debug log" OFF)
+option(CUBBIT "Build cubbit version" OFF)
+set(CMAKE_CXX_STANDARD 20)
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
     set(WEBRTC_BUILD_TYPE debug)
 else()

@@ -6,7 +6,7 @@ endif()
 ExternalProject_Add(depot-tools
     GIT_REPOSITORY    https://chromium.googlesource.com/chromium/tools/depot_tools.git
     PREFIX            ${BINARY_ROOT}/depot_tools
-
+    GIT_TAG "main"
     UPDATE_COMMAND    ""
     CONFIGURE_COMMAND ""
     BUILD_COMMAND     ""

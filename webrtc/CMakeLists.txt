@@ -10,7 +10,7 @@ find_package(Git REQUIRED)
 include(DepotTools)
 
 # https://chromiumdash.appspot.com/branches
-set(WEBRTC_REVISION 3987)
+set(WEBRTC_REVISION 6478)
 set(WEBRTC_GIT_REVISION branch-heads/${WEBRTC_REVISION})
 
 set(WEBRTC_FOLDER ${CMAKE_CURRENT_BINARY_DIR}/webrtc)
@@ -20,9 +20,9 @@ list(APPEND WEBRTC_GEN_ARGS
     rtc_build_examples=false
     rtc_use_x11=false
     rtc_enable_protobuf=false
-    rtc_use_gtk=false
     rtc_include_pulse_audio=false
     rtc_include_tests=false
+    use_custom_libcxx=false
 )
 
 if(CUBBIT)
@@ -61,7 +61,7 @@ else()
 endif()
 
 if(WIN32)
-    list(APPEND WEBRTC_GEN_ARGS is_clang=false)
+    list(APPEND WEBRTC_GEN_ARGS is_clang=true)
 endif()
 
 string(REPLACE ";" " " WEBRTC_GEN_ARGS "${WEBRTC_GEN_ARGS}")
