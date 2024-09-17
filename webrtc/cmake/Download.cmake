@@ -52,7 +52,16 @@ if(NOLOG)
     )
     list(APPEND WEBRTC_DOWNLOAD_DEPENDS nolog)
 endif()
-
+if(UNIX)
+    set(WEBRTC_STDCXX_COMMAND git apply --verbose --ignore-space-change --ignore-whitespace ${CMAKE_CURRENT_SOURCE_DIR}/patch/linux_stdcxx_compatibility_patch.patch)
+    webrtc_command(
+        NAME unixstdcxx
+        COMMAND ${WEBRTC_STDCXX_COMMAND}
+        WORKING_DIRECTORY ${WEBRTC_FOLDER}/src
+        DEPENDS sync
+    )
+    list(APPEND WEBRTC_DOWNLOAD_DEPENDS unixstdcxx)
+endif()
 if(CUBBIT)
     set(WEBRTC_LIBCXXABI_PATCH_COMMAND git apply --3way --ignore-space-change --ignore-whitespace ${CMAKE_CURRENT_SOURCE_DIR}/patch/libc++abi/Enable-cxa_thread_atexit-for-linux.patch)
     webrtc_command(
