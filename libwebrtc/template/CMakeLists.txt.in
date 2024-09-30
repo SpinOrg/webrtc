@@ -36,13 +36,13 @@ else()
     endif()
 endif()
 
-install(DIRECTORY include/webrtc DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
-install(TARGETS webrtc EXPORT webrtc-config INCLUDES DESTINATION)
-install(EXPORT webrtc-config DESTINATION cmake)
+#install(DIRECTORY include/webrtc DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+#install(TARGETS webrtc EXPORT webrtc-config INCLUDES DESTINATION)
+#install(EXPORT webrtc-config DESTINATION cmake)
 
 # Boringssl
 add_library(webrtc-boringssl INTERFACE)
 target_include_directories(webrtc-boringssl SYSTEM INTERFACE $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/webrtc/third_party/boringssl/src/include>)
 target_link_libraries(webrtc-boringssl INTERFACE ${WEBRTC_LIBRARIES})
-install(TARGETS webrtc-boringssl EXPORT webrtc-boringssl-config INCLUDES DESTINATION)
-install(EXPORT webrtc-boringssl-config DESTINATION cmake)
+#install(TARGETS webrtc-boringssl EXPORT webrtc-boringssl-config INCLUDES DESTINATION)
+#install(EXPORT webrtc-boringssl-config DESTINATION cmake)
