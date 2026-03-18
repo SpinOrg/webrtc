@@ -69,7 +69,11 @@ jobs:
             ls -la build/dist || true
             exit 1
           fi
-          cp "$SRC" "$DST"
+          if [[ "$SRC" == "$DST" ]]; then
+            echo "Artifact name already normalized: $DST"
+          else
+            cp "$SRC" "$DST"
+          fi
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
