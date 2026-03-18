@@ -1,0 +1,143 @@
+name: Release WebRTC (macOS)
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_run_id:
+        description: 'Optional Build WebRTC (macOS) run id. Leave empty to use latest successful run.'
+        required: false
+        type: string
+      tag_name:
+        description: 'Release tag to use (for example: v1.2.3). Leave empty to auto-generate.'
+        required: false
+        type: string
+      release_name:
+        description: 'Optional release title. Leave empty for default.'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  prepare-release:
+    name: Prepare release metadata
+    runs-on: ubuntu-latest
+    outputs:
+      build_run_id: ${{ steps.resolve.outputs.build_run_id }}
+      build_head_sha: ${{ steps.resolve.outputs.build_head_sha }}
+      tag_name: ${{ steps.resolve.outputs.tag_name }}
+      release_name: ${{ steps.resolve.outputs.release_name }}
+
+    steps:
+      - name: Resolve build run and release metadata
+        id: resolve
+        uses: actions/github-script@v7
+        env:
+          BUILD_RUN_ID_INPUT: ${{ inputs.build_run_id }}
+          TAG_NAME_INPUT: ${{ inputs.tag_name }}
+          RELEASE_NAME_INPUT: ${{ inputs.release_name }}
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+
+            const runIdInput = (process.env.BUILD_RUN_ID_INPUT || '').trim();
+            let run;
+
+            if (runIdInput) {
+              const result = await github.rest.actions.getWorkflowRun({
+                owner,
+                repo,
+                run_id: Number(runIdInput),
+              });
+              run = result.data;
+            } else {
+              const result = await github.rest.actions.listWorkflowRuns({
+                owner,
+                repo,
+                workflow_id: 'build-mac.yml',
+                status: 'completed',
+                per_page: 50,
+              });
+
+              run = result.data.workflow_runs.find((candidate) => candidate.conclusion === 'success');
+              if (!run) {
+                core.setFailed('No successful runs found for build-mac.yml. Run Build WebRTC (macOS) first or provide build_run_id.');
+                return;
+              }
+            }
+
+            if (run.conclusion !== 'success') {
+              core.setFailed(`Selected build run ${run.id} is not successful (conclusion: ${run.conclusion}).`);
+              return;
+            }
+
+            const tagInput = (process.env.TAG_NAME_INPUT || '').trim();
+            const tagName = tagInput || `v${new Date().toISOString().slice(0, 10).replace(/-/g, '.')}-${run.id}`;
+
+            const releaseNameInput = (process.env.RELEASE_NAME_INPUT || '').trim();
+            const releaseName = releaseNameInput || `macOS WebRTC ${tagName}`;
+
+            core.info(`Using build run ${run.id} from workflow '${run.name}' at commit ${run.head_sha}`);
+            core.setOutput('build_run_id', String(run.id));
+            core.setOutput('build_head_sha', run.head_sha);
+            core.setOutput('tag_name', tagName);
+            core.setOutput('release_name', releaseName);
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create tag if missing
+        shell: bash
+        env:
+          TAG_NAME: ${{ steps.resolve.outputs.tag_name }}
+          TARGET_SHA: ${{ steps.resolve.outputs.build_head_sha }}
+        run: |
+          set -euo pipefail
+          git fetch --tags --force
+          if git rev-parse -q --verify "refs/tags/${TAG_NAME}" >/dev/null; then
+            echo "Tag already exists: ${TAG_NAME}"
+          else
+            git fetch --no-tags origin "${TARGET_SHA}"
+            git tag "${TAG_NAME}" "${TARGET_SHA}"
+            git push origin "refs/tags/${TAG_NAME}"
+            echo "Created and pushed tag: ${TAG_NAME} -> ${TARGET_SHA}"
+          fi
+
+  release:
+    name: Publish GitHub Release
+    needs: prepare-release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+
+    steps:
+      - name: Download build artifacts from selected run
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ needs.prepare-release.outputs.build_run_id }}
+          pattern: webrtc-macos-*
+          merge-multiple: true
+          path: dist
+
+      - name: Verify downloaded artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          ls -la dist
+          ls -la dist/*.zip
+
+      - name: Publish release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.prepare-release.outputs.tag_name }}
+          name: ${{ needs.prepare-release.outputs.release_name }}
+          target_commitish: ${{ needs.prepare-release.outputs.build_head_sha }}
+          files: dist/*.zip
+          generate_release_notes: true
