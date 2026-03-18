@@ -36,6 +36,8 @@ jobs:
           if [[ ! -d "${DEPOT_TOOLS_DIR}" ]]; then
             git clone --depth 1 https://chromium.googlesource.com/chromium/tools/depot_tools.git "${DEPOT_TOOLS_DIR}"
           fi
+          # Initialize depot_tools python/toolchain files required by gn/gclient.
+          PATH="${DEPOT_TOOLS_DIR}:${PATH}" "${DEPOT_TOOLS_DIR}/update_depot_tools"
           echo "DEPOT_TOOLS_DIR=${DEPOT_TOOLS_DIR}" >> "${GITHUB_ENV}"
           echo "PATH=${DEPOT_TOOLS_DIR}:${PATH}" >> "${GITHUB_ENV}"
           echo "DEPOT_TOOLS_UPDATE=0" >> "${GITHUB_ENV}"
@@ -46,8 +48,7 @@ jobs:
           set -euo pipefail
           command -v gclient
           command -v gn
-          # First plain gclient run bootstraps depot_tools on fresh environments.
-          gclient > /dev/null
+          gclient help > /dev/null
           gn --version
 
       - name: Configure
