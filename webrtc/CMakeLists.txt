@@ -7,7 +7,16 @@ set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 include(ExternalProject)
 find_package(Git REQUIRED)
 
-# include(DepotTools)
+set(DEPOT_TOOLS_PATH "" CACHE PATH "Path to an existing depot_tools checkout")
+if(DEPOT_TOOLS_PATH)
+    get_filename_component(DEPOT_TOOLS_PATH "${DEPOT_TOOLS_PATH}" ABSOLUTE)
+    if(NOT EXISTS "${DEPOT_TOOLS_PATH}/gclient")
+        message(FATAL_ERROR "DEPOT_TOOLS_PATH does not contain gclient: ${DEPOT_TOOLS_PATH}")
+    endif()
+    message(STATUS "Using preinstalled depot_tools at ${DEPOT_TOOLS_PATH}")
+else()
+    include(DepotTools)
+endif()
 
 # https://chromiumdash.appspot.com/branches
 set(WEBRTC_REVISION 6478)

@@ -53,7 +53,7 @@ jobs:
           which -a gn || true
 
       - name: Configure
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DARCH=${{ matrix.cmake_arch }}
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DARCH=${{ matrix.cmake_arch }} -DDEPOT_TOOLS_PATH="${DEPOT_TOOLS_DIR}"
 
       - name: Build pack target
         run: cmake --build build --target pack --parallel 2

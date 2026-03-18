@@ -1,9 +1,14 @@
 set(DEPOT_TOOLS_CONFIG_COMMAND git config core.autocrlf false)
+set(DEPOT_TOOLS_CONFIG_DEPENDS "")
+if(TARGET depot-tools)
+    list(APPEND DEPOT_TOOLS_CONFIG_DEPENDS depot-tools)
+endif()
+
 webrtc_command(
     NAME depot-tools-config
     COMMAND ${DEPOT_TOOLS_CONFIG_COMMAND}
     WORKING_DIRECTORY ${DEPOT_TOOLS_PATH}
-    DEPENDS depot-tools
+    DEPENDS ${DEPOT_TOOLS_CONFIG_DEPENDS}
 )
 
 set(WEBRTC_FETCH_COMMAND gclient config --unmanaged --name src https://webrtc.googlesource.com/src)

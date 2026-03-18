@@ -9,6 +9,7 @@ set(CMAKE_INSTALL_PREFIX "${PROJECT_BINARY_DIR}/dist")
 option(ARCH "Target architecture" "")
 option(NOLOG "Disable debug log" OFF)
 option(CUBBIT "Build cubbit version" OFF)
+set(DEPOT_TOOLS_PATH "" CACHE PATH "Path to an existing depot_tools checkout")
 set(CMAKE_CXX_STANDARD 20)
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
     set(WEBRTC_BUILD_TYPE debug)
@@ -16,17 +17,24 @@ else()
     set(WEBRTC_BUILD_TYPE release)
 endif()
 
+set(WEBRTC_CMAKE_ARGS
+    -DCMAKE_INSTALL_PREFIX=${CMAKE_INSTALL_PREFIX}
+    -DWEBRTC_BUILD_TYPE=${WEBRTC_BUILD_TYPE}
+    -DARCH=${ARCH}
+    -DNOLOG=${NOLOG}
+    -DCUBBIT=${CUBBIT}
+)
+if(DEPOT_TOOLS_PATH)
+    list(APPEND WEBRTC_CMAKE_ARGS -DDEPOT_TOOLS_PATH=${DEPOT_TOOLS_PATH})
+else()
+    list(APPEND WEBRTC_CMAKE_ARGS -DBINARY_ROOT=${CMAKE_BINARY_DIR})
+endif()
+
 ExternalProject_Add(webrtc
     PREFIX ${CMAKE_BINARY_DIR}/webrtc
     SOURCE_DIR ${CMAKE_SOURCE_DIR}/webrtc
 
-    CMAKE_ARGS
-        -DCMAKE_INSTALL_PREFIX=${CMAKE_INSTALL_PREFIX}
-        -DWEBRTC_BUILD_TYPE=${WEBRTC_BUILD_TYPE}
-        -DBINARY_ROOT=${CMAKE_BINARY_DIR}
-        -DARCH=${ARCH}
-        -DNOLOG=${NOLOG}
-        -DCUBBIT=${CUBBIT}
+    CMAKE_ARGS ${WEBRTC_CMAKE_ARGS}
 
     INSTALL_COMMAND ""
 )
