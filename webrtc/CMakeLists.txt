@@ -7,7 +7,7 @@ set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 include(ExternalProject)
 find_package(Git REQUIRED)
 
-include(DepotTools)
+# include(DepotTools)
 
 # https://chromiumdash.appspot.com/branches
 set(WEBRTC_REVISION 6478)
