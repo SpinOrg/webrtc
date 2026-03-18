@@ -43,24 +43,32 @@ if(ARCH)
     set(WEBRTC_ARCH ${ARCH})
 endif()
 
+list(APPEND WEBRTC_GEN_ARGS rtc_build_tools=false)
+
 if(ARCH STREQUAL "arm")
-    list(APPEND WEBRTC_GEN_ARGS
-        target_os=\\"linux\\"
-        target_cpu=\\"arm\\"
-        rtc_build_tools=true
-        treat_warnings_as_errors=false
-        fatal_linker_warnings=false
-    )
+    if(APPLE)
+        list(APPEND WEBRTC_GEN_ARGS target_cpu=\\"arm\\")
+    else()
+        list(APPEND WEBRTC_GEN_ARGS
+            target_os=\\"linux\\"
+            target_cpu=\\"arm\\"
+            rtc_build_tools=true
+            treat_warnings_as_errors=false
+            fatal_linker_warnings=false
+        )
+    endif()
 elseif(ARCH STREQUAL "arm64")
-    list(APPEND WEBRTC_GEN_ARGS
-        target_os=\\"linux\\"
-        target_cpu=\\"arm64\\"
-        rtc_build_tools=true
-        treat_warnings_as_errors=false
-        fatal_linker_warnings=false
-    )
-else()
-    list(APPEND WEBRTC_GEN_ARGS rtc_build_tools=false)
+    if(APPLE)
+        list(APPEND WEBRTC_GEN_ARGS target_cpu=\\"arm64\\")
+    else()
+        list(APPEND WEBRTC_GEN_ARGS
+            target_os=\\"linux\\"
+            target_cpu=\\"arm64\\"
+            rtc_build_tools=true
+            treat_warnings_as_errors=false
+            fatal_linker_warnings=false
+        )
+    endif()
 endif()
 
 if(WEBRTC_BUILD_TYPE STREQUAL "debug")
@@ -75,7 +83,7 @@ endif()
 
 string(REPLACE ";" " " WEBRTC_GEN_ARGS "${WEBRTC_GEN_ARGS}")
 
-set(WEBTC_TARGET webrtc libjingle_peerconnection)
+set(WEBRTC_TARGET webrtc libjingle_peerconnection)
 
 include(WebrtcCommand)
 
