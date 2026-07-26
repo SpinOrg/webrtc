@@ -1,0 +1,202 @@
+diff --git a/media/sctp/dcsctp_transport.cc b/media/sctp/dcsctp_transport.cc
+index 0f4e188..24e9a16 100644
+--- a/media/sctp/dcsctp_transport.cc
++++ b/media/sctp/dcsctp_transport.cc
+@@ -112,12 +112,20 @@ DcSctpTransport::DcSctpTransport(const Environment& env,
+     : DcSctpTransport(env,
+                       network_thread,
+                       transport,
+-                      std::make_unique<dcsctp::DcSctpSocketFactory>()) {}
++                      std::make_unique<dcsctp::DcSctpSocketFactory>(),
++                      4,
++                      false) {}
+ DcSctpTransport::DcSctpTransport(
+     const Environment& env,
+     rtc::Thread* network_thread,
+     rtc::PacketTransportInternal* transport,
+-    std::unique_ptr<dcsctp::DcSctpSocketFactory> socket_factory)
++    std::unique_ptr<dcsctp::DcSctpSocketFactory> socket_factory,
++    int max_burst,
++    bool diagnostics_enabled)
+     : network_thread_(network_thread),
+       transport_(transport),
+       env_(env),
+       random_(env_.clock().TimeInMicroseconds()),
+       socket_factory_(std::move(socket_factory)),
++      max_burst_(max_burst),
++      diagnostics_enabled_(diagnostics_enabled),
+       task_queue_timeout_factory_(
+           *network_thread,
+           [this]() { return TimeMillis(); },
+@@ -185,6 +193,8 @@ bool DcSctpTransport::Start(int local_sctp_port,
+     options.max_retransmissions = absl::nullopt;
+     options.max_init_retransmits = absl::nullopt;
++    options.max_burst = max_burst_;
++    options.enable_packet_metrics = diagnostics_enabled_;
+     options.per_stream_send_queue_limit =
+         DataChannelInterface::MaxSendQueueSize();
+@@ -211,6 +221,12 @@ bool DcSctpTransport::Start(int local_sctp_port,
+   return true;
+ }
+ 
++absl::optional<dcsctp::Metrics> DcSctpTransport::GetMetrics() const {
++  RTC_DCHECK_RUN_ON(network_thread_);
++  if (!socket_) return absl::nullopt;
++  return socket_->GetMetrics();
++}
++
+ bool DcSctpTransport::OpenStream(int sid) {
+diff --git a/media/sctp/dcsctp_transport.h b/media/sctp/dcsctp_transport.h
+index 52f451c..51adc07 100644
+--- a/media/sctp/dcsctp_transport.h
++++ b/media/sctp/dcsctp_transport.h
+@@ -48,8 +48,12 @@ class DcSctpTransport : public cricket::SctpTransportInternal,
+                   rtc::Thread* network_thread,
+                   rtc::PacketTransportInternal* transport,
+-                  std::unique_ptr<dcsctp::DcSctpSocketFactory> socket_factory);
++                  std::unique_ptr<dcsctp::DcSctpSocketFactory> socket_factory,
++                  int max_burst = 4,
++                  bool diagnostics_enabled = false);
+   ~DcSctpTransport() override;
+ 
++  absl::optional<dcsctp::Metrics> GetMetrics() const;
++
+   // cricket::SctpTransportInternal
+@@ -108,6 +112,8 @@ class DcSctpTransport : public cricket::SctpTransportInternal,
+   Random random_;
+ 
+   std::unique_ptr<dcsctp::DcSctpSocketFactory> socket_factory_;
++  const int max_burst_;
++  const bool diagnostics_enabled_;
+   dcsctp::TaskQueueTimeoutFactory task_queue_timeout_factory_;
+diff --git a/media/sctp/sctp_transport_factory.cc b/media/sctp/sctp_transport_factory.cc
+index 149a34f..9bc6c32 100644
+--- a/media/sctp/sctp_transport_factory.cc
++++ b/media/sctp/sctp_transport_factory.cc
+@@ -20,8 +20,16 @@ namespace cricket {
+ 
+ SctpTransportFactory::SctpTransportFactory(rtc::Thread* network_thread)
+-    : network_thread_(network_thread) {
++    : SctpTransportFactory(network_thread, 4, false) {}
++
++SctpTransportFactory::SctpTransportFactory(rtc::Thread* network_thread,
++                                           int max_burst,
++                                           bool diagnostics_enabled)
++    : network_thread_(network_thread),
++      max_burst_(max_burst),
++      diagnostics_enabled_(diagnostics_enabled) {
+   RTC_UNUSED(network_thread_);
+ }
+ 
++absl::optional<dcsctp::Metrics> SctpTransportFactory::GetMetrics() const {
++  return last_transport_ ? last_transport_->GetMetrics() : absl::nullopt;
++}
++
+ std::unique_ptr<SctpTransportInternal>
+@@ -32,8 +40,10 @@ SctpTransportFactory::CreateSctpTransport(
+   std::unique_ptr<SctpTransportInternal> result;
+ #ifdef WEBRTC_HAVE_DCSCTP
+-  result = std::unique_ptr<SctpTransportInternal>(
+-      new webrtc::DcSctpTransport(env, network_thread_, transport));
++  auto dcsctp = std::make_unique<webrtc::DcSctpTransport>(
++      env, network_thread_, transport,
++      std::make_unique<dcsctp::DcSctpSocketFactory>(),
++      max_burst_, diagnostics_enabled_);
++  last_transport_ = dcsctp.get();
++  result = std::move(dcsctp);
+ #endif
+diff --git a/media/sctp/sctp_transport_factory.h b/media/sctp/sctp_transport_factory.h
+index 303c981..d18f9f8 100644
+--- a/media/sctp/sctp_transport_factory.h
++++ b/media/sctp/sctp_transport_factory.h
+@@ -14,16 +14,29 @@
+ #define MEDIA_SCTP_SCTP_TRANSPORT_FACTORY_H_
+ 
++#include "absl/types/optional.h"
+ #include <memory>
+ 
+ #include "api/environment/environment.h"
+ #include "api/transport/sctp_transport_factory_interface.h"
+ #include "media/sctp/sctp_transport_internal.h"
++#include "net/dcsctp/public/dcsctp_socket.h"
+ #include "rtc_base/thread.h"
+ 
++namespace webrtc {
++class DcSctpTransport;
++}
++
+ namespace cricket {
+ 
+ class SctpTransportFactory : public webrtc::SctpTransportFactoryInterface {
+  public:
+   explicit SctpTransportFactory(rtc::Thread* network_thread);
++  SctpTransportFactory(rtc::Thread* network_thread,
++                       int max_burst,
++                       bool diagnostics_enabled);
++
++  absl::optional<dcsctp::Metrics> GetMetrics() const;
+ 
+   std::unique_ptr<SctpTransportInternal> CreateSctpTransport(
+@@ -32,6 +45,9 @@ class SctpTransportFactory : public webrtc::SctpTransportFactoryInterface {
+ 
+  private:
+   rtc::Thread* network_thread_;
++  int max_burst_;
++  bool diagnostics_enabled_;
++  webrtc::DcSctpTransport* last_transport_ = nullptr;
+ };
+diff --git a/net/dcsctp/public/dcsctp_options.h b/net/dcsctp/public/dcsctp_options.h
+index aa5e4bb..4223988 100644
+--- a/net/dcsctp/public/dcsctp_options.h
++++ b/net/dcsctp/public/dcsctp_options.h
+@@ -186,6 +186,10 @@ struct DcSctpOptions {
+   // retransmission scenarios.
+   int max_burst = 4;
+ 
++  // Collect packet-level SACK metrics. Disabled by default to avoid parsing
++  // every outgoing packet in production builds.
++  bool enable_packet_metrics = false;
++
+   // Maximum Data Retransmit Attempts (per DATA chunk). Set to absl::nullopt for
+diff --git a/net/dcsctp/public/dcsctp_socket.h b/net/dcsctp/public/dcsctp_socket.h
+index 7198924..950414d 100644
+--- a/net/dcsctp/public/dcsctp_socket.h
++++ b/net/dcsctp/public/dcsctp_socket.h
+@@ -214,6 +214,12 @@ struct Metrics {
+   // Number of messages requested to be sent.
+   size_t tx_messages_count = 0;
+ 
++  // Number of SACK chunks sent and received. These are collected only when
++  // DcSctpOptions::enable_packet_metrics is true.
++  size_t tx_sack_count = 0;
++  size_t rx_sack_count = 0;
++
+   // Number of packets retransmitted. Since SCTP packets can contain both
+diff --git a/net/dcsctp/socket/dcsctp_socket.cc b/net/dcsctp/socket/dcsctp_socket.cc
+index cc155e6..5d78a83 100644
+--- a/net/dcsctp/socket/dcsctp_socket.cc
++++ b/net/dcsctp/socket/dcsctp_socket.cc
+@@ -1024,6 +1024,17 @@ void DcSctpSocket::OnSentPacket(rtc::ArrayView<const uint8_t> packet,
+   }
+ 
+   if (status == SendPacketStatus::kSuccess) {
++    if (options_.enable_packet_metrics) {
++      const auto parsed = SctpPacket::Parse(packet, options_);
++      if (parsed) {
++        for (const auto& descriptor : parsed->descriptors()) {
++          if (descriptor.type == SackChunk::kType) {
++            ++metrics_.tx_sack_count;
++          }
++        }
++      }
++    }
++
+     if (RTC_DLOG_IS_ON) {
+@@ -1488,6 +1499,9 @@ void DcSctpSocket::HandleSack(const CommonHeader& header,
+   absl::optional<SackChunk> chunk = SackChunk::Parse(descriptor.data);
+ 
+   if (ValidateParseSuccess(chunk) && ValidateHasTCB()) {
++    if (options_.enable_packet_metrics) {
++      ++metrics_.rx_sack_count;
++    }
+     Timestamp now = callbacks_.Now();

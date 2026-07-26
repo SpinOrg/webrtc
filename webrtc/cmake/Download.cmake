@@ -71,6 +71,17 @@ if(UNIX AND NOT APPLE)
     )
     list(APPEND WEBRTC_DOWNLOAD_DEPENDS unixstdcxx)
 endif()
+
+if(WEBRTC_ENABLE_NETWORK_BENCHMARKING)
+    set(WEBRTC_DCSCTP_DIAGNOSTICS_COMMAND
+        git apply --recount --verbose --ignore-space-change --ignore-whitespace
+        ${CMAKE_CURRENT_SOURCE_DIR}/patch/dcsctp-transport-diagnostics.patch)
+    add_custom_target(dcsctp-diagnostics
+        COMMAND ${WEBRTC_DCSCTP_DIAGNOSTICS_COMMAND}
+        WORKING_DIRECTORY ${WEBRTC_FOLDER}/src
+        DEPENDS ${WEBRTC_DOWNLOAD_DEPENDS})
+    list(APPEND WEBRTC_DOWNLOAD_DEPENDS dcsctp-diagnostics)
+endif()
 if(CUBBIT)
     set(WEBRTC_LIBCXXABI_PATCH_COMMAND git apply --3way --ignore-space-change --ignore-whitespace ${CMAKE_CURRENT_SOURCE_DIR}/patch/libc++abi/Enable-cxa_thread_atexit-for-linux.patch)
     webrtc_command(

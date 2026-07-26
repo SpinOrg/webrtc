@@ -19,9 +19,11 @@ jobs:
         include:
           - runner: macos-15-intel
             arch: x86_64
+            osx_arch: x86_64
             cmake_arch: amd64
           - runner: macos-15
             arch: arm64
+            osx_arch: arm64
             cmake_arch: arm64
 
     steps:
@@ -53,7 +55,13 @@ jobs:
           which -a gn || true
 
       - name: Configure
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DARCH=${{ matrix.cmake_arch }} -DDEPOT_TOOLS_PATH="${DEPOT_TOOLS_DIR}"
+        run: >
+          cmake -S . -B build
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_OSX_ARCHITECTURES=${{ matrix.osx_arch }}
+          -DCMAKE_SYSTEM_PROCESSOR=${{ matrix.osx_arch }}
+          -DARCH=${{ matrix.cmake_arch }}
+          -DDEPOT_TOOLS_PATH="${DEPOT_TOOLS_DIR}"
 
       - name: Build pack target
         run: cmake --build build --target pack --parallel 2

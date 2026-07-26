@@ -2,6 +2,13 @@ cmake_minimum_required(VERSION 3.8)
 
 project(webrtc NONE)
 
+option(
+    WEBRTC_ENABLE_NETWORK_BENCHMARKING
+    "Apply packet-level dcSCTP benchmarking instrumentation"
+    OFF)
+message(STATUS
+    "WebRTC dcSCTP network benchmarking: ${WEBRTC_ENABLE_NETWORK_BENCHMARKING}")
+
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 
 include(ExternalProject)
