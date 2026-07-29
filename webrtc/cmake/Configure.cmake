@@ -5,7 +5,7 @@ endif(APPLE)
 
 set(WEBRTC_GEN_DEPENDS download)
 if(UNIX AND NOT APPLE)
-    set(WEBRTC_SYSROOT_COMMAND python build/linux/sysroot_scripts/install-sysroot.py --arch=${WEBRTC_ARCH})
+    set(WEBRTC_SYSROOT_COMMAND python3 build/linux/sysroot_scripts/install-sysroot.py --arch=${WEBRTC_ARCH})
     webrtc_command(
         NAME sysroot
         COMMAND ${WEBRTC_SYSROOT_COMMAND}

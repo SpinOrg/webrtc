@@ -9,7 +9,9 @@ index 0f4e188..24e9a16 100644
 -                      std::make_unique<dcsctp::DcSctpSocketFactory>()) {}
 +                      std::make_unique<dcsctp::DcSctpSocketFactory>(),
 +                      4,
-+                      false) {}
++                      false,
++                      256,
++                      128) {}
  DcSctpTransport::DcSctpTransport(
      const Environment& env,
      rtc::Thread* network_thread,
@@ -17,7 +19,9 @@ index 0f4e188..24e9a16 100644
 -    std::unique_ptr<dcsctp::DcSctpSocketFactory> socket_factory)
 +    std::unique_ptr<dcsctp::DcSctpSocketFactory> socket_factory,
 +    int max_burst,
-+    bool diagnostics_enabled)
++    bool diagnostics_enabled,
++    size_t cwnd_mtus_initial,
++    size_t cwnd_mtus_min)
      : network_thread_(network_thread),
        transport_(transport),
        env_(env),
@@ -25,6 +29,8 @@ index 0f4e188..24e9a16 100644
        socket_factory_(std::move(socket_factory)),
 +      max_burst_(max_burst),
 +      diagnostics_enabled_(diagnostics_enabled),
++      cwnd_mtus_initial_(cwnd_mtus_initial),
++      cwnd_mtus_min_(cwnd_mtus_min),
        task_queue_timeout_factory_(
            *network_thread,
            [this]() { return TimeMillis(); },
@@ -33,6 +39,8 @@ index 0f4e188..24e9a16 100644
      options.max_init_retransmits = absl::nullopt;
 +    options.max_burst = max_burst_;
 +    options.enable_packet_metrics = diagnostics_enabled_;
++    options.cwnd_mtus_initial = cwnd_mtus_initial_;
++    options.cwnd_mtus_min = cwnd_mtus_min_;
      options.per_stream_send_queue_limit =
          DataChannelInterface::MaxSendQueueSize();
 @@ -211,6 +221,12 @@ bool DcSctpTransport::Start(int local_sctp_port,
@@ -56,7 +64,9 @@ index 52f451c..51adc07 100644
 -                  std::unique_ptr<dcsctp::DcSctpSocketFactory> socket_factory);
 +                  std::unique_ptr<dcsctp::DcSctpSocketFactory> socket_factory,
 +                  int max_burst = 4,
-+                  bool diagnostics_enabled = false);
++                  bool diagnostics_enabled = false,
++                  size_t cwnd_mtus_initial = 256,
++                  size_t cwnd_mtus_min = 128);
    ~DcSctpTransport() override;
  
 +  absl::optional<dcsctp::Metrics> GetMetrics() const;
@@ -68,6 +78,8 @@ index 52f451c..51adc07 100644
    std::unique_ptr<dcsctp::DcSctpSocketFactory> socket_factory_;
 +  const int max_burst_;
 +  const bool diagnostics_enabled_;
++  const size_t cwnd_mtus_initial_;
++  const size_t cwnd_mtus_min_;
    dcsctp::TaskQueueTimeoutFactory task_queue_timeout_factory_;
 diff --git a/media/sctp/sctp_transport_factory.cc b/media/sctp/sctp_transport_factory.cc
 index 149a34f..9bc6c32 100644
@@ -77,14 +89,18 @@ index 149a34f..9bc6c32 100644
  
  SctpTransportFactory::SctpTransportFactory(rtc::Thread* network_thread)
 -    : network_thread_(network_thread) {
-+    : SctpTransportFactory(network_thread, 4, false) {}
++    : SctpTransportFactory(network_thread, 4, false, 256, 128) {}
 +
 +SctpTransportFactory::SctpTransportFactory(rtc::Thread* network_thread,
 +                                           int max_burst,
-+                                           bool diagnostics_enabled)
++                                           bool diagnostics_enabled,
++                                           size_t cwnd_mtus_initial,
++                                           size_t cwnd_mtus_min)
 +    : network_thread_(network_thread),
 +      max_burst_(max_burst),
-+      diagnostics_enabled_(diagnostics_enabled) {
++      diagnostics_enabled_(diagnostics_enabled),
++      cwnd_mtus_initial_(cwnd_mtus_initial),
++      cwnd_mtus_min_(cwnd_mtus_min) {
    RTC_UNUSED(network_thread_);
  }
  
@@ -101,7 +117,8 @@ index 149a34f..9bc6c32 100644
 +  auto dcsctp = std::make_unique<webrtc::DcSctpTransport>(
 +      env, network_thread_, transport,
 +      std::make_unique<dcsctp::DcSctpSocketFactory>(),
-+      max_burst_, diagnostics_enabled_);
++      max_burst_, diagnostics_enabled_,
++      cwnd_mtus_initial_, cwnd_mtus_min_);
 +  last_transport_ = dcsctp.get();
 +  result = std::move(dcsctp);
  #endif
@@ -132,7 +149,9 @@ index 303c981..d18f9f8 100644
    explicit SctpTransportFactory(rtc::Thread* network_thread);
 +  SctpTransportFactory(rtc::Thread* network_thread,
 +                       int max_burst,
-+                       bool diagnostics_enabled);
++                       bool diagnostics_enabled,
++                       size_t cwnd_mtus_initial,
++                       size_t cwnd_mtus_min);
 +
 +  absl::optional<dcsctp::Metrics> GetMetrics() const;
  
@@ -143,6 +162,8 @@ index 303c981..d18f9f8 100644
    rtc::Thread* network_thread_;
 +  int max_burst_;
 +  bool diagnostics_enabled_;
++  size_t cwnd_mtus_initial_;
++  size_t cwnd_mtus_min_;
 +  webrtc::DcSctpTransport* last_transport_ = nullptr;
  };
 diff --git a/net/dcsctp/public/dcsctp_options.h b/net/dcsctp/public/dcsctp_options.h

@@ -9,6 +9,10 @@ set(CMAKE_INSTALL_PREFIX "${PROJECT_BINARY_DIR}/dist")
 option(ARCH "Target architecture" "")
 option(NOLOG "Disable debug log" OFF)
 option(CUBBIT "Build cubbit version" OFF)
+option(
+    WEBRTC_ENABLE_NETWORK_BENCHMARKING
+    "Apply packet-level dcSCTP benchmarking instrumentation"
+    OFF)
 set(DEPOT_TOOLS_PATH "" CACHE PATH "Path to an existing depot_tools checkout")
 set(CMAKE_CXX_STANDARD 20)
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
@@ -23,6 +27,7 @@ set(WEBRTC_CMAKE_ARGS
     -DARCH=${ARCH}
     -DNOLOG=${NOLOG}
     -DCUBBIT=${CUBBIT}
+    -DWEBRTC_ENABLE_NETWORK_BENCHMARKING=${WEBRTC_ENABLE_NETWORK_BENCHMARKING}
 )
 if(DEPOT_TOOLS_PATH)
     list(APPEND WEBRTC_CMAKE_ARGS -DDEPOT_TOOLS_PATH=${DEPOT_TOOLS_PATH})
