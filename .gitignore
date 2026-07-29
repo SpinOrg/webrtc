@@ -175,3 +175,4 @@ $RECYCLE.BIN/
 build/
 Preload.cmake
 /build-network-diagnostics
+/build-network-defaults

@@ -167,7 +167,7 @@ index 303c981..d18f9f8 100644
 +  webrtc::DcSctpTransport* last_transport_ = nullptr;
  };
 diff --git a/net/dcsctp/public/dcsctp_options.h b/net/dcsctp/public/dcsctp_options.h
-index aa5e4bb..4223988 100644
+index bb5af68..4223988 100644
 --- a/net/dcsctp/public/dcsctp_options.h
 +++ b/net/dcsctp/public/dcsctp_options.h
 @@ -186,6 +186,10 @@ struct DcSctpOptions {

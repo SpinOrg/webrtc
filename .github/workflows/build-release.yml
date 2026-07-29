@@ -1,0 +1,363 @@
+name: Build and Release WebRTC
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_ubuntu_24_04_x64:
+        description: Build Ubuntu 24.04 x64 on the self-hosted Linux runner
+        required: true
+        default: true
+        type: boolean
+      build_windows_x64:
+        description: Build Windows x64 on the self-hosted Windows runner
+        required: true
+        default: true
+        type: boolean
+      build_macos_x86_64:
+        description: Build macOS x86_64 on the Intel runner
+        required: true
+        default: true
+        type: boolean
+      build_macos_arm64:
+        description: Build macOS arm64 on the Apple Silicon runner
+        required: true
+        default: true
+        type: boolean
+      release_assets:
+        description: Upload selected artifacts to the latest v* tag release
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    name: Resolve targets and release tag
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.result }}
+      tag_name: ${{ steps.tag.outputs.tag_name }}
+      tag_sha: ${{ steps.tag.outputs.tag_sha }}
+
+    steps:
+      - name: Checkout tags
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve latest v tag
+        id: tag
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git fetch --tags --force
+          TAG_NAME="$(git tag --list 'v*' --sort=-version:refname | head -n1)"
+          if [ -z "$TAG_NAME" ]; then
+            echo "No v* tag exists. Create a version tag before running this workflow." >&2
+            exit 1
+          fi
+
+          TAG_SHA="$(git rev-list -n1 "$TAG_NAME")"
+          echo "tag_name=$TAG_NAME" >> "$GITHUB_OUTPUT"
+          echo "tag_sha=$TAG_SHA" >> "$GITHUB_OUTPUT"
+          echo "Building WebRTC source from $TAG_NAME ($TAG_SHA)"
+
+      - name: Build selected-target matrix
+        id: matrix
+        uses: actions/github-script@v7
+        env:
+          BUILD_UBUNTU: ${{ inputs.build_ubuntu_24_04_x64 }}
+          BUILD_WINDOWS: ${{ inputs.build_windows_x64 }}
+          BUILD_MACOS_X86_64: ${{ inputs.build_macos_x86_64 }}
+          BUILD_MACOS_ARM64: ${{ inputs.build_macos_arm64 }}
+        with:
+          script: |
+            const enabled = (value) => value === 'true';
+            const include = [];
+
+            if (enabled(process.env.BUILD_UBUNTU)) {
+              include.push({
+                target: 'ubuntu-24.04-x64',
+                runner: ['self-hosted', 'ubuntu-latest'],
+                platform: 'linux',
+                cmake_arch: 'amd64',
+                artifact_name: 'webrtc-ubuntu-24.04-x64',
+                source_asset: 'webrtc-linux-amd64-release.zip',
+                release_asset: 'webrtc-linux-x86_64-release.zip',
+              });
+            }
+            if (enabled(process.env.BUILD_WINDOWS)) {
+              include.push({
+                target: 'windows-x64',
+                runner: ['self-hosted', 'windows-latest'],
+                platform: 'windows',
+                cmake_arch: 'amd64',
+                artifact_name: 'webrtc-windows-x64',
+                source_asset: 'webrtc-win-amd64-release.zip',
+                release_asset: 'webrtc-win-x64-release.zip',
+              });
+            }
+            if (enabled(process.env.BUILD_MACOS_X86_64)) {
+              include.push({
+                target: 'macos-x86_64',
+                runner: 'macos-15-intel',
+                platform: 'macos',
+                osx_arch: 'x86_64',
+                cmake_arch: 'amd64',
+                artifact_name: 'webrtc-macos-x86_64',
+                source_asset: 'webrtc-darwin-amd64-release.zip',
+                release_asset: 'webrtc-darwin-x86_64-release.zip',
+              });
+            }
+            if (enabled(process.env.BUILD_MACOS_ARM64)) {
+              include.push({
+                target: 'macos-arm64',
+                runner: 'macos-15',
+                platform: 'macos',
+                osx_arch: 'arm64',
+                cmake_arch: 'arm64',
+                artifact_name: 'webrtc-macos-arm64',
+                source_asset: 'webrtc-darwin-arm64-release.zip',
+                release_asset: 'webrtc-darwin-arm64-release.zip',
+              });
+            }
+
+            if (include.length === 0) {
+              core.setFailed('Select at least one build target.');
+              return;
+            }
+
+            core.info(`Selected targets: ${include.map((entry) => entry.target).join(', ')}`);
+            return { include };
+
+  build:
+    name: Build ${{ matrix.target }}
+    needs: prepare
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+
+    steps:
+      - name: Checkout dispatched revision
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install CMake
+        uses: lukka/get-cmake@latest
+
+      - name: Verify Ubuntu 24.04 runner
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          . /etc/os-release
+          if [ "${VERSION_ID}" != "24.04" ]; then
+            echo "Expected Ubuntu 24.04, found ${PRETTY_NAME}." >&2
+            exit 1
+          fi
+
+      - name: Install depot_tools on Unix
+        if: matrix.platform != 'windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          DEPOT_TOOLS_DIR="${RUNNER_TEMP}/depot_tools"
+          if [ ! -d "${DEPOT_TOOLS_DIR}/.git" ]; then
+            git clone --depth 1 \
+              https://chromium.googlesource.com/chromium/tools/depot_tools.git \
+              "${DEPOT_TOOLS_DIR}"
+          else
+            git -C "${DEPOT_TOOLS_DIR}" fetch --depth 1 origin main
+            git -C "${DEPOT_TOOLS_DIR}" reset --hard origin/main
+          fi
+
+          PATH="${DEPOT_TOOLS_DIR}:${PATH}" "${DEPOT_TOOLS_DIR}/update_depot_tools"
+
+          if [ "${{ matrix.platform }}" = "macos" ]; then
+            WEBRTC_GN_DIR="${GITHUB_WORKSPACE}/build/webrtc/src/webrtc-build/webrtc/src/buildtools/mac"
+          else
+            WEBRTC_GN_DIR="${GITHUB_WORKSPACE}/build/webrtc/src/webrtc-build/webrtc/src/buildtools/linux64"
+          fi
+
+          echo "DEPOT_TOOLS_DIR=${DEPOT_TOOLS_DIR}" >> "$GITHUB_ENV"
+          echo "DEPOT_TOOLS_UPDATE=0" >> "$GITHUB_ENV"
+          echo "${DEPOT_TOOLS_DIR}" >> "$GITHUB_PATH"
+          echo "${WEBRTC_GN_DIR}" >> "$GITHUB_PATH"
+
+      - name: Install depot_tools on Windows
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $DepotToolsDir = Join-Path $env:RUNNER_TEMP "depot_tools"
+          if (-not (Test-Path (Join-Path $DepotToolsDir ".git"))) {
+            git clone --depth 1 `
+              https://chromium.googlesource.com/chromium/tools/depot_tools.git `
+              $DepotToolsDir
+          } else {
+            git -C $DepotToolsDir fetch --depth 1 origin main
+            git -C $DepotToolsDir reset --hard origin/main
+          }
+
+          & (Join-Path $DepotToolsDir "update_depot_tools.bat")
+
+          $WebRtcGnDir = Join-Path $env:GITHUB_WORKSPACE `
+            "build\webrtc\src\webrtc-build\webrtc\src\buildtools\win"
+          "DEPOT_TOOLS_DIR=$DepotToolsDir" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "DEPOT_TOOLS_UPDATE=0" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "DEPOT_TOOLS_WIN_TOOLCHAIN=0" | Out-File -FilePath $env:GITHUB_ENV -Append
+          $DepotToolsDir | Out-File -FilePath $env:GITHUB_PATH -Append
+          $WebRtcGnDir | Out-File -FilePath $env:GITHUB_PATH -Append
+
+      - name: Configure Ubuntu
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DARCH="${{ matrix.cmake_arch }}" \
+            -DDEPOT_TOOLS_PATH="${DEPOT_TOOLS_DIR}" \
+            -DWEBRTC_ENABLE_NETWORK_BENCHMARKING=OFF
+
+      - name: Configure Windows
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          cmake -S . -B build `
+            -G "Visual Studio 17 2022" `
+            -A x64 `
+            -DCMAKE_BUILD_TYPE=Release `
+            -DARCH="${{ matrix.cmake_arch }}" `
+            -DDEPOT_TOOLS_PATH="$env:DEPOT_TOOLS_DIR" `
+            -DWEBRTC_ENABLE_NETWORK_BENCHMARKING=OFF
+
+      - name: Configure macOS
+        if: matrix.platform == 'macos'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_ARCHITECTURES="${{ matrix.osx_arch }}" \
+            -DCMAKE_SYSTEM_PROCESSOR="${{ matrix.osx_arch }}" \
+            -DARCH="${{ matrix.cmake_arch }}" \
+            -DDEPOT_TOOLS_PATH="${DEPOT_TOOLS_DIR}" \
+            -DWEBRTC_ENABLE_NETWORK_BENCHMARKING=OFF
+
+      - name: Build package
+        run: cmake --build build --target pack --config Release --parallel 2
+
+      - name: Normalize artifact on Unix
+        if: matrix.platform != 'windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="build/dist/${{ matrix.source_asset }}"
+          DST="build/dist/${{ matrix.release_asset }}"
+          if [ ! -f "$SRC" ]; then
+            echo "Expected artifact not found: $SRC" >&2
+            find build/dist -maxdepth 1 -type f -print || true
+            exit 1
+          fi
+          if [ "$SRC" != "$DST" ]; then
+            cp "$SRC" "$DST"
+          fi
+
+      - name: Normalize artifact on Windows
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $Source = Join-Path "build\dist" "${{ matrix.source_asset }}"
+          $Destination = Join-Path "build\dist" "${{ matrix.release_asset }}"
+          if (-not (Test-Path $Source)) {
+            Get-ChildItem "build\dist" -ErrorAction SilentlyContinue
+            throw "Expected artifact not found: $Source"
+          }
+          if ($Source -ne $Destination) {
+            Copy-Item $Source $Destination -Force
+          }
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: build/dist/${{ matrix.release_asset }}
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: Update latest version release
+    if: ${{ inputs.release_assets }}
+    needs:
+      - prepare
+      - build
+    runs-on: [self-hosted, ubuntu-latest]
+    permissions:
+      contents: write
+    concurrency:
+      group: webrtc-release-${{ needs.prepare.outputs.tag_name }}
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download selected artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create or reuse release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ needs.prepare.outputs.tag_name }}
+          TAG_SHA: ${{ needs.prepare.outputs.tag_sha }}
+        run: |
+          set -euo pipefail
+
+          if gh release view "$TAG_NAME" >/dev/null 2>&1; then
+            echo "Reusing existing release for $TAG_NAME."
+          elif gh release create "$TAG_NAME" \
+              --verify-tag \
+              --target "$TAG_SHA" \
+              --title "Release $TAG_NAME" \
+              --generate-notes; then
+            echo "Created release for $TAG_NAME."
+          else
+            echo "Release creation may have raced another workflow; verifying it exists."
+            gh release view "$TAG_NAME" >/dev/null
+          fi
+
+      - name: Upload release assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ needs.prepare.outputs.tag_name }}
+        run: |
+          set -euo pipefail
+
+          mapfile -t files < <(find artifacts -type f -name '*.zip' -print | sort)
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "No release assets were downloaded." >&2
+            exit 1
+          fi
+
+          for file in "${files[@]}"; do
+            echo "Uploading $(basename "$file") to $TAG_NAME"
+            gh release upload "$TAG_NAME" "$file" --clobber
+          done

@@ -1,0 +1,20 @@
+diff --git a/net/dcsctp/public/dcsctp_options.h b/net/dcsctp/public/dcsctp_options.h
+index aa5e4bb..bb5af68 100644
+--- a/net/dcsctp/public/dcsctp_options.h
++++ b/net/dcsctp/public/dcsctp_options.h
+@@ -159,13 +159,13 @@ struct DcSctpOptions {
+   // See https://tools.ietf.org/html/rfc4960#section-7.2.1 which defaults at ~3
+   // and https://research.google/pubs/pub36640/ which argues for at least ten
+   // segments.
+-  size_t cwnd_mtus_initial = 10;
++  size_t cwnd_mtus_initial = 256;
+ 
+   // The minimum congestion window size, in number of MTUs, upon detection of
+   // packet loss by SACK. Note that if the retransmission timer expires, the
+   // congestion window will be as small as one MTU. See
+   // https://tools.ietf.org/html/rfc4960#section-7.2.3.
+-  size_t cwnd_mtus_min = 4;
++  size_t cwnd_mtus_min = 128;
+ 
+   // When the congestion window is at or above this number of MTUs, the
+   // congestion control algorithm will avoid filling the congestion window

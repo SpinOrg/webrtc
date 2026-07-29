@@ -72,14 +72,27 @@ if(UNIX AND NOT APPLE)
     list(APPEND WEBRTC_DOWNLOAD_DEPENDS unixstdcxx)
 endif()
 
+set(WEBRTC_DCSCTP_TUNING_COMMAND
+    git apply --recount --verbose --ignore-space-change --ignore-whitespace
+    ${CMAKE_CURRENT_SOURCE_DIR}/patch/dcsctp-production-tuning.patch)
+webrtc_command(
+    NAME dcsctp-production-tuning
+    COMMAND ${WEBRTC_DCSCTP_TUNING_COMMAND}
+    WORKING_DIRECTORY ${WEBRTC_FOLDER}/src
+    DEPENDS ${WEBRTC_DOWNLOAD_DEPENDS}
+)
+list(APPEND WEBRTC_DOWNLOAD_DEPENDS dcsctp-production-tuning)
+
 if(WEBRTC_ENABLE_NETWORK_BENCHMARKING)
     set(WEBRTC_DCSCTP_DIAGNOSTICS_COMMAND
         git apply --recount --verbose --ignore-space-change --ignore-whitespace
         ${CMAKE_CURRENT_SOURCE_DIR}/patch/dcsctp-transport-diagnostics.patch)
-    add_custom_target(dcsctp-diagnostics
+    webrtc_command(
+        NAME dcsctp-diagnostics
         COMMAND ${WEBRTC_DCSCTP_DIAGNOSTICS_COMMAND}
         WORKING_DIRECTORY ${WEBRTC_FOLDER}/src
-        DEPENDS ${WEBRTC_DOWNLOAD_DEPENDS})
+        DEPENDS ${WEBRTC_DOWNLOAD_DEPENDS}
+    )
     list(APPEND WEBRTC_DOWNLOAD_DEPENDS dcsctp-diagnostics)
 endif()
 if(CUBBIT)
