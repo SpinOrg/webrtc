@@ -107,7 +107,9 @@ if(CUBBIT)
 endif()
 
 if(WIN32)
-    set(DEPOT_TOOLS_PIP_COMMAND python -m pip install pywin32)
+    set(
+        DEPOT_TOOLS_PIP_COMMAND
+        "${DEPOT_TOOLS_PATH}/python3.bat" -m pip install pywin32)
     webrtc_command(
         NAME depot-tools-pip
         COMMAND ${DEPOT_TOOLS_PIP_COMMAND}
