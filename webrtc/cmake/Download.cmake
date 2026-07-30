@@ -51,6 +51,17 @@ endif()
 
 set(WEBRTC_DOWNLOAD_DEPENDS config sync hooks)
 
+set(WEBRTC_BORINGSSL_STRING_INCLUDE_COMMAND
+    git apply --recount --verbose --ignore-space-change --ignore-whitespace
+    ${CMAKE_CURRENT_SOURCE_DIR}/patch/boringssl-string-include.patch)
+webrtc_command(
+    NAME boringssl-string-include
+    COMMAND ${WEBRTC_BORINGSSL_STRING_INCLUDE_COMMAND}
+    WORKING_DIRECTORY ${WEBRTC_FOLDER}/src
+    DEPENDS sync
+)
+list(APPEND WEBRTC_DOWNLOAD_DEPENDS boringssl-string-include)
+
 if(NOLOG)
     set(WEBRTC_NOLOG_COMMAND git apply --3way --ignore-space-change --ignore-whitespace ${CMAKE_CURRENT_SOURCE_DIR}/patch/Disable-debug-build-log.patch)
     webrtc_command(
