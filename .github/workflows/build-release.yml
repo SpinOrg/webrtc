@@ -151,6 +151,67 @@ jobs:
       - name: Install CMake
         uses: lukka/get-cmake@latest
 
+      - name: Ensure Chromium-required Windows SDK
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $SdkVersion = "10.0.22621.0"
+          $SdkRoot = Join-Path ${env:ProgramFiles(x86)} "Windows Kits\10"
+          $RequiredPaths = @(
+            (Join-Path $SdkRoot "Include\$SdkVersion\shared"),
+            (Join-Path $SdkRoot "Include\$SdkVersion\ucrt"),
+            (Join-Path $SdkRoot "Include\$SdkVersion\um"),
+            (Join-Path $SdkRoot "Lib\$SdkVersion\ucrt\x64"),
+            (Join-Path $SdkRoot "Lib\$SdkVersion\um\x64")
+          )
+
+          $MissingPaths = @($RequiredPaths | Where-Object { -not (Test-Path $_) })
+          if ($MissingPaths.Count -gt 0) {
+            Write-Host "Installing Windows SDK $SdkVersion required by this WebRTC revision."
+
+            $VsWhere = Join-Path ${env:ProgramFiles(x86)} `
+              "Microsoft Visual Studio\Installer\vswhere.exe"
+            if (-not (Test-Path $VsWhere)) {
+              throw "Visual Studio Installer vswhere.exe was not found at $VsWhere"
+            }
+            $VsInstallPath = (& $VsWhere -latest -products * `
+              -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
+              -property installationPath).Trim()
+            if (-not $VsInstallPath) {
+              throw "A Visual Studio installation with the x64 C++ tools was not found."
+            }
+
+            $Installer = Join-Path ${env:ProgramFiles(x86)} `
+              "Microsoft Visual Studio\Installer\setup.exe"
+            if (-not (Test-Path $Installer)) {
+              $Installer = Join-Path ${env:ProgramFiles(x86)} `
+                "Microsoft Visual Studio\Installer\vs_installer.exe"
+            }
+            if (-not (Test-Path $Installer)) {
+              throw "Visual Studio Installer executable was not found."
+            }
+
+            $Process = Start-Process -FilePath $Installer -Wait -PassThru `
+              -ArgumentList @(
+                "modify",
+                "--installPath", "`"$VsInstallPath`"",
+                "--add", "Microsoft.VisualStudio.Component.Windows11SDK.22621",
+                "--quiet",
+                "--norestart"
+              )
+            if ($Process.ExitCode -notin @(0, 3010)) {
+              throw "Visual Studio Installer exited with code $($Process.ExitCode)."
+            }
+          }
+
+          $MissingPaths = @($RequiredPaths | Where-Object { -not (Test-Path $_) })
+          if ($MissingPaths.Count -gt 0) {
+            throw "Windows SDK $SdkVersion is incomplete. Missing: $($MissingPaths -join ', ')"
+          }
+          Write-Host "Windows SDK $SdkVersion is complete at $SdkRoot"
+
       - name: Verify Ubuntu 24.04 runner
         if: matrix.platform == 'linux'
         shell: bash
