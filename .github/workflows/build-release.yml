@@ -334,11 +334,15 @@ jobs:
       - name: Create or reuse release
         shell: bash
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.GHTOKEN }}
           TAG_NAME: ${{ needs.prepare.outputs.tag_name }}
           TAG_SHA: ${{ needs.prepare.outputs.tag_sha }}
         run: |
           set -euo pipefail
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "The GHTOKEN secret is required to create WebRTC releases." >&2
+            exit 1
+          fi
 
           if gh release view "$TAG_NAME" >/dev/null 2>&1; then
             echo "Reusing existing release for $TAG_NAME."
@@ -356,7 +360,7 @@ jobs:
       - name: Upload release assets
         shell: bash
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.GHTOKEN }}
           TAG_NAME: ${{ needs.prepare.outputs.tag_name }}
         run: |
           set -euo pipefail

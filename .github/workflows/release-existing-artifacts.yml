@@ -1,0 +1,90 @@
+name: Release Existing WebRTC Artifacts
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Numeric workflow run ID containing the retained build artifacts
+        required: true
+        type: string
+      tag_name:
+        description: Existing v* tag to release; blank selects the latest version tag
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  release:
+    name: Release retained build artifacts
+    runs-on: [self-hosted, ubuntu-latest]
+    concurrency:
+      group: webrtc-recovery-release-${{ inputs.tag_name || 'latest' }}
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout tags
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve release tag
+        id: tag
+        shell: bash
+        env:
+          REQUESTED_TAG: ${{ inputs.tag_name }}
+        run: |
+          set -euo pipefail
+          git fetch --tags --force
+          TAG_NAME="${REQUESTED_TAG}"
+          if [ -z "${TAG_NAME}" ]; then
+            TAG_NAME="$(git tag --list 'v*' --sort=-version:refname | head -n1)"
+          fi
+          if [ -z "${TAG_NAME}" ] || ! git rev-parse --verify --quiet "refs/tags/${TAG_NAME}" >/dev/null; then
+            echo "A valid v* release tag is required." >&2
+            exit 1
+          fi
+          echo "tag_name=${TAG_NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: Download artifacts from existing run
+        uses: actions/download-artifact@v4
+        with:
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ secrets.GHTOKEN }}
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create or reuse release and upload assets
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GHTOKEN }}
+          TAG_NAME: ${{ steps.tag.outputs.tag_name }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "The GHTOKEN secret is required to publish WebRTC releases." >&2
+            exit 1
+          fi
+
+          mapfile -t files < <(find artifacts -type f -name '*.zip' -print | sort)
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "Run ${{ inputs.run_id }} contains no retained WebRTC zip artifacts." >&2
+            exit 1
+          fi
+
+          if gh release view "${TAG_NAME}" >/dev/null 2>&1; then
+            echo "Reusing existing release for ${TAG_NAME}."
+          else
+            gh release create "${TAG_NAME}" \
+              --verify-tag \
+              --title "Release ${TAG_NAME}" \
+              --generate-notes
+          fi
+
+          for file in "${files[@]}"; do
+            echo "Uploading $(basename "${file}") to ${TAG_NAME}"
+            gh release upload "${TAG_NAME}" "${file}" --clobber
+          done
