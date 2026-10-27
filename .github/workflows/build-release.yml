@@ -230,8 +230,10 @@ jobs:
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends \
-            pkg-config
+            pkg-config \
+            python3
           pkg-config --version
+          python3 --version
 
       - name: Install depot_tools on Unix
         if: matrix.platform != 'windows'
