@@ -66,9 +66,17 @@ diff --git a/rtc_base/openssl_utility.cc b/rtc_base/openssl_utility.cc
 index c166f45..1ca09e2 100644
 --- a/rtc_base/openssl_utility.cc
 +++ b/rtc_base/openssl_utility.cc
-@@ -17,6 +17,12 @@
+@@ -17,6 +17,20 @@
  #include "rtc_base/win32.h"  // NOLINT
 +#include <wincrypt.h>
++
++// wincrypt.h defines encoding constants whose names collide with BoringSSL
++// types. Keep the CryptoAPI declarations, but remove the conflicting macros
++// before including BoringSSL headers below.
++#undef PKCS7_SIGNER_INFO
++#undef X509_CERT_PAIR
++#undef X509_EXTENSIONS
++#undef X509_NAME
  #endif                       // WEBRTC_WIN
  
 +#if defined(WEBRTC_MAC) && !defined(WEBRTC_IOS)
