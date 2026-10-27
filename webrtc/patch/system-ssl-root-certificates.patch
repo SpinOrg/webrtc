@@ -66,8 +66,9 @@ diff --git a/rtc_base/openssl_utility.cc b/rtc_base/openssl_utility.cc
 index c166f45..1ca09e2 100644
 --- a/rtc_base/openssl_utility.cc
 +++ b/rtc_base/openssl_utility.cc
-@@ -17,6 +17,11 @@
+@@ -17,6 +17,12 @@
  #include "rtc_base/win32.h"  // NOLINT
++#include <wincrypt.h>
  #endif                       // WEBRTC_WIN
  
 +#if defined(WEBRTC_MAC) && !defined(WEBRTC_IOS)
