@@ -62,6 +62,17 @@ webrtc_command(
 )
 list(APPEND WEBRTC_DOWNLOAD_DEPENDS boringssl-string-include)
 
+set(WEBRTC_SYSTEM_SSL_ROOTS_COMMAND
+    git apply --recount --verbose --ignore-space-change --ignore-whitespace
+    ${CMAKE_CURRENT_SOURCE_DIR}/patch/system-ssl-root-certificates.patch)
+webrtc_command(
+    NAME system-ssl-root-certificates
+    COMMAND ${WEBRTC_SYSTEM_SSL_ROOTS_COMMAND}
+    WORKING_DIRECTORY ${WEBRTC_FOLDER}/src
+    DEPENDS ${WEBRTC_DOWNLOAD_DEPENDS}
+)
+list(APPEND WEBRTC_DOWNLOAD_DEPENDS system-ssl-root-certificates)
+
 if(NOLOG)
     set(WEBRTC_NOLOG_COMMAND git apply --3way --ignore-space-change --ignore-whitespace ${CMAKE_CURRENT_SOURCE_DIR}/patch/Disable-debug-build-log.patch)
     webrtc_command(

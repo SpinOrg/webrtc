@@ -1,0 +1,227 @@
+diff --git a/BUILD.gn b/BUILD.gn
+index 21d8e95..9a37c45 100644
+--- a/BUILD.gn
++++ b/BUILD.gn
+@@ -157,6 +157,10 @@ config("common_inherited_config") {
+     defines += [ "WEBRTC_EXCLUDE_BUILT_IN_SSL_ROOT_CERTS" ]
+   }
+ 
++  if (rtc_use_system_ssl_root_certificates) {
++    defines += [ "WEBRTC_USE_SYSTEM_SSL_ROOT_CERTIFICATES" ]
++  }
++
+   if (rtc_disable_check_msg) {
+     defines += [ "RTC_DISABLE_CHECK_MSG" ]
+   }
+diff --git a/webrtc.gni b/webrtc.gni
+index 81634c9..9204a20 100644
+--- a/webrtc.gni
++++ b/webrtc.gni
+@@ -95,6 +95,11 @@ declare_args() {
+   # TLS-TURN server. In return disabling this saves around 100kb in the binary.
+   rtc_builtin_ssl_root_certificates = true
+ 
++  # Load TLS-TURN trust anchors from the operating system instead of WebRTC's
++  # bundled root list. Certificate-chain and hostname verification remain
++  # enabled and are still performed by WebRTC's SSL adapter.
++  rtc_use_system_ssl_root_certificates = false
++
+   # Include the iLBC audio codec?
+   rtc_include_ilbc = true
+ 
+diff --git a/rtc_base/BUILD.gn b/rtc_base/BUILD.gn
+index d4e21c2..fb51f83 100644
+--- a/rtc_base/BUILD.gn
++++ b/rtc_base/BUILD.gn
+@@ -1588,6 +1588,10 @@ rtc_library("ssl") {
+   if (is_win) {
+     deps += [ ":win32" ]
+   }
++
++  if (is_mac) {
++    frameworks = [ "Security.framework" ]
++  }
+ }
+ 
+ rtc_library("crypt_string") {
+diff --git a/rtc_base/openssl_utility.h b/rtc_base/openssl_utility.h
+index c2ab5f9..5a8b1ec 100644
+--- a/rtc_base/openssl_utility.h
++++ b/rtc_base/openssl_utility.h
+@@ -42,6 +42,13 @@ bool VerifyPeerCertMatchesHost(SSL* ssl, absl::string_view host);
+ // prefix can be provided for context.
+ void LogSSLErrors(absl::string_view prefix);
+ 
++#ifdef WEBRTC_USE_SYSTEM_SSL_ROOT_CERTIFICATES
++// Loads trust anchors from the operating system into `ssl_ctx`. Returns false
++// if the platform trust store cannot be opened or contains no usable roots.
++// Existing WebRTC chain and hostname verification remains enabled.
++bool LoadSystemSSLRootCertificates(SSL_CTX* ssl_ctx);
++#endif
++
+ #ifndef WEBRTC_EXCLUDE_BUILT_IN_SSL_ROOT_CERTS
+ // Attempt to add the certificates from the loader into the SSL_CTX. False is
+ // returned only if there are no certificates returned from the loader or none
+diff --git a/rtc_base/openssl_utility.cc b/rtc_base/openssl_utility.cc
+index c166f45..1ca09e2 100644
+--- a/rtc_base/openssl_utility.cc
++++ b/rtc_base/openssl_utility.cc
+@@ -17,6 +17,11 @@
+ #include "rtc_base/win32.h"  // NOLINT
+ #endif                       // WEBRTC_WIN
+ 
++#if defined(WEBRTC_MAC) && !defined(WEBRTC_IOS)
++#include <CoreFoundation/CoreFoundation.h>
++#include <Security/Security.h>
++#endif
++
+ #ifdef OPENSSL_IS_BORINGSSL
+ #include <openssl/pool.h>
+ #endif
+@@ -54,6 +59,22 @@ void LogCertificates(SSL* ssl, X509* certificate) {
+ #endif
+ }
++
++#if defined(WEBRTC_WIN) || \
++    (defined(WEBRTC_MAC) && !defined(WEBRTC_IOS))
++bool AddCertificateToStore(X509_STORE* store,
++                           const unsigned char* der,
++                           size_t der_length) {
++  const unsigned char* cursor = der;
++  X509* certificate =
++      d2i_X509(nullptr, &cursor, checked_cast<long>(der_length));  // NOLINT
++  if (certificate == nullptr) {
++    ERR_clear_error();
++    return false;
++  }
++  const bool added = X509_STORE_add_cert(store, certificate) == 1;
++  X509_free(certificate);
++  if (!added) {
++    ERR_clear_error();
++  }
++  return added;
++}
++#endif
+ }  // namespace
+ 
+ #ifdef OPENSSL_IS_BORINGSSL
+@@ -241,6 +262,84 @@ void LogSSLErrors(absl::string_view prefix) {
+   }
+ }
+ 
++#ifdef WEBRTC_USE_SYSTEM_SSL_ROOT_CERTIFICATES
++bool LoadSystemSSLRootCertificates(SSL_CTX* ctx) {
++  if (ctx == nullptr) {
++    return false;
++  }
++
++#if defined(WEBRTC_WIN)
++  X509_STORE* target = SSL_CTX_get_cert_store(ctx);
++  int added = 0;
++  const DWORD locations[] = {
++      CERT_SYSTEM_STORE_CURRENT_USER,
++      CERT_SYSTEM_STORE_LOCAL_MACHINE,
++  };
++  for (DWORD location : locations) {
++    HCERTSTORE system_store = CertOpenStore(
++        CERT_STORE_PROV_SYSTEM_A, 0, 0,
++        location | CERT_STORE_READONLY_FLAG, "ROOT");
++    if (system_store == nullptr) {
++      RTC_LOG(LS_WARNING) << "Unable to open a Windows ROOT certificate store: "
++                          << GetLastError();
++      continue;
++    }
++
++    PCCERT_CONTEXT certificate = nullptr;
++    while ((certificate =
++                CertEnumCertificatesInStore(system_store, certificate)) !=
++           nullptr) {
++      if (AddCertificateToStore(target, certificate->pbCertEncoded,
++                                certificate->cbCertEncoded)) {
++        ++added;
++      }
++    }
++    CertCloseStore(system_store, 0);
++  }
++  RTC_LOG(LS_INFO) << "Loaded " << added
++                   << " TLS root certificates from Windows certificate stores";
++  return added > 0;
++
++#elif defined(WEBRTC_MAC) && !defined(WEBRTC_IOS)
++  CFArrayRef anchors = nullptr;
++  if (SecTrustCopyAnchorCertificates(&anchors) != errSecSuccess ||
++      anchors == nullptr) {
++    RTC_LOG(LS_WARNING) << "Unable to read macOS trust anchors";
++    return false;
++  }
++
++  X509_STORE* target = SSL_CTX_get_cert_store(ctx);
++  int added = 0;
++  const CFIndex count = CFArrayGetCount(anchors);
++  for (CFIndex index = 0; index < count; ++index) {
++    SecCertificateRef certificate = static_cast<SecCertificateRef>(
++        const_cast<void*>(CFArrayGetValueAtIndex(anchors, index)));
++    CFDataRef der = SecCertificateCopyData(certificate);
++    if (der == nullptr) {
++      continue;
++    }
++    const CFIndex der_length = CFDataGetLength(der);
++    if (der_length > 0 &&
++        AddCertificateToStore(target, CFDataGetBytePtr(der),
++                              checked_cast<size_t>(der_length))) {
++      ++added;
++    }
++    CFRelease(der);
++  }
++  CFRelease(anchors);
++  RTC_LOG(LS_INFO) << "Loaded " << added
++                   << " TLS root certificates from macOS Security anchors";
++  return added > 0;
++
++#elif defined(WEBRTC_POSIX)
++  const bool loaded = SSL_CTX_set_default_verify_paths(ctx) == 1;
++  if (!loaded) {
++    RTC_LOG(LS_WARNING) << "Unable to load the system TLS root paths";
++    LogSSLErrors("Loading system TLS root paths");
++  }
++  return loaded;
++
++#else
++  RTC_LOG(LS_ERROR) << "System TLS root loading is unsupported on this platform";
++  return false;
++#endif
++}
++#endif  // WEBRTC_USE_SYSTEM_SSL_ROOT_CERTIFICATES
++
+ #ifndef WEBRTC_EXCLUDE_BUILT_IN_SSL_ROOT_CERTS
+ bool LoadBuiltinSSLRootCertificates(SSL_CTX* ctx) {
+   int count_of_added_certs = 0;
+diff --git a/rtc_base/openssl_adapter.cc b/rtc_base/openssl_adapter.cc
+index 4928e32..bdc679f 100644
+--- a/rtc_base/openssl_adapter.cc
++++ b/rtc_base/openssl_adapter.cc
+@@ -973,7 +973,16 @@ SSL_CTX* OpenSSLAdapter::CreateContext(SSLMode mode, bool enable_cache) {
+     return nullptr;
+   }
+ 
+-#ifndef WEBRTC_EXCLUDE_BUILT_IN_SSL_ROOT_CERTS
++#ifdef WEBRTC_USE_SYSTEM_SSL_ROOT_CERTIFICATES
++  if (!openssl::LoadSystemSSLRootCertificates(ctx)) {
++    RTC_LOG(LS_ERROR) << "SSL_CTX creation failed: Failed to load operating "
++                         "system ssl root certificates.";
++    SSL_CTX_free(ctx);
++    return nullptr;
++  }
++#elif !defined(WEBRTC_EXCLUDE_BUILT_IN_SSL_ROOT_CERTS)
+   if (!openssl::LoadBuiltinSSLRootCertificates(ctx)) {
+     RTC_LOG(LS_ERROR) << "SSL_CTX creation failed: Failed to load any trusted "
+                          "ssl root certificates.";
+@@ -981,7 +990,7 @@ SSL_CTX* OpenSSLAdapter::CreateContext(SSLMode mode, bool enable_cache) {
+     SSL_CTX_free(ctx);
+     return nullptr;
+   }
+-#endif  // WEBRTC_EXCLUDE_BUILT_IN_SSL_ROOT_CERTS
++#endif
+ 
+ #if !defined(NDEBUG)
+   SSL_CTX_set_info_callback(ctx, SSLInfoCallback);

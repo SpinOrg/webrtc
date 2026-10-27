@@ -6,8 +6,14 @@ option(
     WEBRTC_ENABLE_NETWORK_BENCHMARKING
     "Apply packet-level dcSCTP benchmarking instrumentation"
     OFF)
+option(
+    WEBRTC_USE_SYSTEM_SSL_ROOT_CERTIFICATES
+    "Use the operating system trust store for TLS-TURN certificate verification"
+    ON)
 message(STATUS
     "WebRTC dcSCTP network benchmarking: ${WEBRTC_ENABLE_NETWORK_BENCHMARKING}")
+message(STATUS
+    "WebRTC system TLS roots: ${WEBRTC_USE_SYSTEM_SSL_ROOT_CERTIFICATES}")
 
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 
@@ -51,6 +57,12 @@ if(ARCH)
 endif()
 
 list(APPEND WEBRTC_GEN_ARGS rtc_build_tools=false)
+
+if(WEBRTC_USE_SYSTEM_SSL_ROOT_CERTIFICATES)
+    list(APPEND WEBRTC_GEN_ARGS rtc_use_system_ssl_root_certificates=true)
+else()
+    list(APPEND WEBRTC_GEN_ARGS rtc_use_system_ssl_root_certificates=false)
+endif()
 
 if(ARCH STREQUAL "arm")
     if(APPLE)

@@ -16,13 +16,14 @@ target_include_directories(webrtc SYSTEM INTERFACE $<INSTALL_INTERFACE:${CMAKE_I
 
 if(WIN32)
     target_compile_definitions(webrtc INTERFACE WEBRTC_WIN=1)
-    target_link_libraries(webrtc INTERFACE Winmm.lib Secur32.lib Msdmo.lib Wmcodecdspuuid.lib Dmoguids.lib)
+    target_link_libraries(webrtc INTERFACE Winmm.lib Secur32.lib Crypt32.lib Msdmo.lib Wmcodecdspuuid.lib Dmoguids.lib)
 elseif(APPLE)
     target_compile_definitions(webrtc INTERFACE WEBRTC_MAC=1 WEBRTC_POSIX=1)
 
     find_library(FOUNDATION_LIBRARY Foundation)
     find_library(COREFOUNDATION_LIBRARY CoreFoundation)
-    target_link_libraries(webrtc INTERFACE ${COREFOUNDATION_LIBRARY} ${FOUNDATION_LIBRARY})
+    find_library(SECURITY_LIBRARY Security)
+    target_link_libraries(webrtc INTERFACE ${COREFOUNDATION_LIBRARY} ${FOUNDATION_LIBRARY} ${SECURITY_LIBRARY})
     if(NOT CUBBIT)
         find_library(AUDIOTOOLBOX_LIBRARY AudioToolbox)
         find_library(COREAUDIO_LIBRARY CoreAudio)
